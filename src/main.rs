@@ -7,7 +7,6 @@ use core::{
     fmt::Write,
     panic::PanicInfo
 };
-use cortex_m;
 
 // use defmt::unwrap;
 use embassy_executor::Spawner;
@@ -34,6 +33,7 @@ use heapless::String;
 use defmt_rtt as _;
 
 mod dht22;
+mod soil;
 
 #[panic_handler]
 fn panic(_info: &PanicInfo) -> ! {
@@ -81,17 +81,8 @@ async fn main(_spawner: Spawner) {
     // let mut dht = dht22::DHT22 { pin: pin_2, delay: Delay };
 
     // soil
-
-    // let mut pin_26 = p.PIN_26.into_
-    let adc = embassy_rp::pac::ADC;
-    unsafe {
-        // start ADC
-        adc.cs().write(|w| w.set_en(true) );
-        // wait for ADC to be ready
-        while !adc.cs().read().ready() {
-            cortex_m::asm::nop();
-        };
-    }
+    let soil_sensor = soil::SoilSensor::new(0);
+    soil_sensor.init();
 
     join(
         usb.run(),
@@ -109,24 +100,10 @@ async fn main(_spawner: Spawner) {
                     //     usb_class.write_packet(b"\n").await;
                     // }                    
                     //
-                    let mut bits = [10; 4];
-                    unsafe {
-                        for idx in 0..4 {
-                            adc.cs().modify(|w| {
-                                w.set_ainsel(idx);
-                                adc.cs().modify(|w| w.set_start_once(true));
-                            });
-
-                            while !adc.cs().read().ready() {
-                                cortex_m::asm::nop();
-                            };
-
-                            bits[idx as usize] = adc.result().read().result();
-                        }
-                    }
+                    let bits = soil_sensor.read_single();
 
                     let mut s = String::<256>::from("data:");
-                    let _ = write!(s, "{:?}", bits);
+                    let _ = write!(s, "{:.2}", bits);
                     usb_class.write_packet(s.as_bytes()).await;
                     usb_class.write_packet(b"\n").await;
 

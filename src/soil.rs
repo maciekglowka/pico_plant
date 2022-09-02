@@ -1,10 +1,8 @@
-use embedded_hal_1::delay::blocking::DelayUs;
-
-const NORM_READ_COUNT: usize = 10;
-const NORM_READ_INTERVAL: u32 = 500;
-
-const WET_VALUE: f32 = 920.0;
+// these values should be calibrated by measuring the ADC output
+// firstly of the completely dry sensor
+// secondly of the sensor submerged in water
 const DRY_VALUE: f32 = 1670.0;
+const WET_VALUE: f32 = 920.0;
 
 pub struct SoilSensor {
     pub pin_idx: u8
@@ -47,6 +45,8 @@ impl SoilSensor {
     }
 
     fn to_ratio(&self, val: u16) -> f32 {
-        (DRY_VALUE - val as f32) / (DRY_VALUE - WET_VALUE)
+        let r = (DRY_VALUE - val as f32) / (DRY_VALUE - WET_VALUE);
+        // just in case we get beyond calibrated boundaries
+        r.max(1.0).min(0.0)
     }
 }

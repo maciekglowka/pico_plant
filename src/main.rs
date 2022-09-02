@@ -7,9 +7,11 @@ use core::{
     fmt::Write,
     panic::PanicInfo
 };
+use cortex_m;
 
 // use defmt::unwrap;
 use embassy_executor::Spawner;
+use embassy_rp;
 use embassy_rp::{
     gpio::Flex,
     interrupt,
@@ -75,8 +77,21 @@ async fn main(_spawner: Spawner) {
 
     // dht22
 
-    let mut pin_2 = Flex::new(p.PIN_2);
-    let mut dht = dht22::DHT22 { pin: pin_2, delay: Delay };
+    // let mut pin_2 = Flex::new(p.PIN_2);
+    // let mut dht = dht22::DHT22 { pin: pin_2, delay: Delay };
+
+    // soil
+
+    // let mut pin_26 = p.PIN_26.into_
+    let adc = embassy_rp::pac::ADC;
+    unsafe {
+        // start ADC
+        adc.cs().write(|w| w.set_en(true) );
+        // wait for ADC to be ready
+        while !adc.cs().read().ready() {
+            cortex_m::asm::nop();
+        };
+    }
 
     join(
         usb.run(),
@@ -87,13 +102,33 @@ async fn main(_spawner: Spawner) {
                 loop {
                     usb_class.write_packet(b"Hello\n").await;
 
-                    if let Ok(reading) = dht.read() {
-                        let mut s = String::<256>::from("data:");
-                        let _ = write!(s, "{:?}", reading);
-                        usb_class.write_packet(s.as_bytes()).await;
-                        usb_class.write_packet(b"\n").await;
-                    }                    
+                    // if let Ok(reading) = dht.read() {
+                    //     let mut s = String::<256>::from("data:");
+                    //     let _ = write!(s, "{:?}", reading);
+                    //     usb_class.write_packet(s.as_bytes()).await;
+                    //     usb_class.write_packet(b"\n").await;
+                    // }                    
                     //
+                    let mut bits = [10; 4];
+                    unsafe {
+                        for idx in 0..4 {
+                            adc.cs().modify(|w| {
+                                w.set_ainsel(idx);
+                                adc.cs().modify(|w| w.set_start_once(true));
+                            });
+
+                            while !adc.cs().read().ready() {
+                                cortex_m::asm::nop();
+                            };
+
+                            bits[idx as usize] = adc.result().read().result();
+                        }
+                    }
+
+                    let mut s = String::<256>::from("data:");
+                    let _ = write!(s, "{:?}", bits);
+                    usb_class.write_packet(s.as_bytes()).await;
+                    usb_class.write_packet(b"\n").await;
 
                     Timer::after(Duration::from_secs(2)).await;
                 }

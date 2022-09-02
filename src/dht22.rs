@@ -25,7 +25,11 @@ where P: embassy_rp::gpio::Pin, D: DelayUs
 
         let raw_temp: u16 = (data[2] as u16) << 8 | data[3] as u16;
 
-        // if the first bit of the 16bit word is set the temp. is negative
+        // If the first bit of the 16bit word is set the temp. is negative
+        // Didn't have negative temps around to test it,
+        // so the conversion might be wrong as there are numerous different
+        // pieces of info on the subject over the Internet.
+        // Maybe will update it when the winter comes :)
         let temp: f32 = match raw_temp & 0x8000 == 1 {
             true => -0.1 * (raw_temp & 0x7fff) as f32,
             false => 0.1 * raw_temp as f32

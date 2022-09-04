@@ -12,21 +12,13 @@ use embassy_executor::Spawner;
 use embassy_rp;
 use embassy_rp::{
     gpio::Flex,
-    interrupt,
-    usb::Driver
 };
 use embassy_time::{
     Delay,
     Duration,
     Timer,
 };
-// use embassy_usb::{
-//     Builder,
-//     Config
-// };
-// use embassy_usb_serial::{CdcAcmClass, State};
 
-use futures::future::join;
 use heapless::String;
 
 use defmt_rtt as _;
@@ -34,6 +26,8 @@ use defmt_rtt as _;
 mod dht22;
 mod soil;
 mod wifi;
+
+const READ_INTERVAL: u64 = 3600;
 
 #[panic_handler]
 fn panic(_info: &PanicInfo) -> ! {
@@ -45,40 +39,13 @@ fn panic(_info: &PanicInfo) -> ! {
 async fn main(spawner: Spawner) {
     let p = embassy_rp::init(Default::default());
 
-    // let irq = interrupt::take!(USBCTRL_IRQ);
-    // let driver = Driver::new(p.USB, irq);
-
-    // let mut config = Config::new(0xc0de, 0xcafe);
-    // config.manufacturer = Some("M");
-    // config.product = Some("piczko W");
-    // config.serial_number = Some("1234");
-    // config.max_power = 100;
-    // config.max_packet_size_0 = 64;
-
-    // let mut device_descriptor = [0; 256];
-    // let mut config_descriptor = [0; 256];
-    // let mut bos_descriptor = [0; 256];
-    // let mut control_buf = [0; 64];
-
-    // let mut state = State::new();
-
-    // let mut builder = Builder::new(
-    //     driver,
-    //     config,
-    //     &mut device_descriptor,
-    //     &mut config_descriptor,
-    //     &mut bos_descriptor,
-    //     &mut control_buf,
-    //     None
-    // );
-
-    // let mut usb_class = CdcAcmClass::new(&mut builder, &mut state, 64);
-    // let mut usb = builder.build();
-
     // dht22
 
-    // let mut pin_2 = Flex::new(p.PIN_2);
-    // let mut dht = dht22::DHT22 { pin: pin_2, delay: Delay };
+    let mut pin_2 = Flex::new(p.PIN_2);
+    let mut dht = dht22::DHT22 { pin: pin_2, delay: Delay };
+
+    // wifi 
+
     let wifi_device = wifi::Wifi::new(
         spawner,
         p.PIN_23,
@@ -93,39 +60,32 @@ async fn main(spawner: Spawner) {
     let soil_sensor = soil::SoilSensor::new(0);
     soil_sensor.init();
 
-    // join(
-        // usb.run(),
-        async {
+    async {
+        loop {
+
             loop {
-                // usb_class.wait_connection().await;
+                let dht_reading = match dht.read() {
+                    Ok(r) => r,
+                    Err(_) => dht22::Reading { temp: 0.0, hum :0.0 }
+                };                 
+                
+                let soil_reading = soil_sensor.read_single();
 
-                loop {
-                    // usb_class.write_packet(b"Hello\n").await;
+                let mut s = String::<256>::from("");
+                let _ = write!(s, "{{ \"soil_0\": {:.2},  \"temp_0\": {:.2},  \"hum_0\": {:.2} }}", soil_reading, dht_reading.temp, dht_reading.hum );
 
-                    // if let Ok(reading) = dht.read() {
-                    //     let mut s = String::<256>::from("data:");
-                    //     let _ = write!(s, "{:?}", reading);
-                    //     usb_class.write_packet(s.as_bytes()).await;
-                    //     usb_class.write_packet(b"\n").await;
-                    // }                    
-                    //
-                    let bits = soil_sensor.read_single();
+                wifi_device.connect_and_send(
+                    env!("HOST_IP"),
+                    env!("HOST_NAME"),
+                    env!("HOST_PORT"),
+                    env!("HOST_PATH"),
+                    s.as_bytes()
+                ).await;
 
-                    let mut s = String::<256>::from("data:");
-                    let _ = write!(s, "{:.2}", bits);
-                    // usb_class.write_packet(s.as_bytes()).await;
-                    // usb_class.write_packet(b"\n").await;
-                    wifi_device.connect_and_send(
-                        env!("HOST_IP"),
-                        env!("HOST_NAME"),
-                        env!("HOST_PORT")
-                    ).await;
-
-                    Timer::after(Duration::from_secs(2)).await;
-                }
-
+                Timer::after(Duration::from_secs(READ_INTERVAL)).await;
             }
-        }.await;
-    // ).await;
+
+        }
+    }.await;
 
 }

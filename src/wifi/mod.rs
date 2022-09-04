@@ -24,6 +24,8 @@ use static_cell::StaticCell;
 
 mod spi;
 
+const RECONNECT_ATTEMPTS: u8 = 10;
+
 macro_rules! singleton {
     ($val:expr) => {{
         type T = impl Sized;
@@ -86,7 +88,9 @@ impl Wifi {
         &self,
         host_ip: &str,
         host_name: &str,
-        host_port: &str
+        host_port: &str,
+        host_path: &str,
+        payload: &[u8]
     ) {
         // TODO add connection attempts
         let mut rx_buf = [0; 4096];
@@ -98,23 +102,35 @@ impl Wifi {
 
         let addr = Ipv4Address::from_str(host_ip).unwrap();
         let port = host_port.parse::<u16>().unwrap();
-        // if let Ok(_) = socket.connect((Ipv4Address::new(192, 168, 1, 104), 8000)).await {
-        if let Ok(_) = socket.connect((addr, port)).await {
+        
+        for _ in 0..RECONNECT_ATTEMPTS {
+            if let Ok(_) = socket.connect((addr, port)).await {
+                let mut req_str = String::<128>::new();
+                let _ = write!(req_str, "POST {} HTTP/1.1\r\n", host_path);
 
-            let mut host_str = String::<256>::new();
-            let _ = write!(host_str, "Host: {}\r\n", host_name);
-            
-            socket.write_all(b"GET / HTTP/1.1\r\n").await;
-            socket.write_all(host_str.as_bytes()).await;
-            // socket.write_all(b"Host: 192.168.1.104\r\n").await;
-            socket.write_all(b"\r\n").await;
+                let mut host_str = String::<128>::new();
+                let _ = write!(host_str, "Host: {}\r\n", host_name);
+                
+                socket.write_all(req_str.as_bytes()).await;
+                socket.write_all(host_str.as_bytes()).await;
+                
+                socket.write_all(b"Content-Type: application/json\r\n").await;
 
-            loop {
-                match socket.read(&mut buf).await {
-                    Ok(0) => break,
-                    Ok(n) => (),
-                    Err(_) => break
-                };
+                let mut length_str = String::<128>::new();
+                let _ = write!(length_str, "Content-Length: {}\r\n", payload.len());
+                socket.write_all(length_str.as_bytes()).await;
+                socket.write_all(b"\r\n").await;
+                socket.write_all(payload).await;
+
+                loop {
+                    // TODO check response status
+                    match socket.read(&mut buf).await {
+                        Ok(0) => break,
+                        Ok(n) => (),
+                        Err(_) => break
+                    };
+                }
+                break;
             }
         }
     }

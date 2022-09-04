@@ -47,6 +47,6 @@ impl SoilSensor {
     fn to_ratio(&self, val: u16) -> f32 {
         let r = (DRY_VALUE - val as f32) / (DRY_VALUE - WET_VALUE);
         // just in case we get beyond calibrated boundaries
-        r.max(1.0).min(0.0)
+        r.max(0.0).min(1.0)
     }
 }

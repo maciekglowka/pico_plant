@@ -1,6 +1,6 @@
 # PICO PLANT
 
-**Tiny WIP Rasperry Pi Pico W sensor monitor.**
+**Tiny WIP Rasperry Pi Pico W sensor monitor written in Rust.**
 
 This code utilises the built-in Pico W wifi chip to send the connected sensor data to a remote API endpoint. A simple POST request, containing JSON body with the data, is sent at a specified interval. (by default every hour)
 

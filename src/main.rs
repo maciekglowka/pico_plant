@@ -27,8 +27,6 @@ mod dht22;
 mod soil;
 mod wifi;
 
-const READ_INTERVAL: u64 = 3600;
-
 #[panic_handler]
 fn panic(_info: &PanicInfo) -> ! {
     loop {
@@ -41,8 +39,9 @@ async fn main(spawner: Spawner) {
 
     // dht22
 
-    let mut pin_2 = Flex::new(p.PIN_2);
-    let mut dht = dht22::DHT22 { pin: pin_2, delay: Delay };
+    // let mut pin_2 = Flex::new(p.PIN_2);
+    let mut pin_6 = Flex::new(p.PIN_6);
+    let mut dht = dht22::DHT22 { pin: pin_6, delay: Delay };
 
     // wifi 
 
@@ -60,31 +59,40 @@ async fn main(spawner: Spawner) {
     let soil_sensor = soil::SoilSensor::new(0);
     soil_sensor.init();
 
+    let read_interval = env!("READ_INTERVAL_SEC")
+        .parse::<u64>()
+        .unwrap_or(3600);
+
     async {
         loop {
+            let dht_reading = match dht.read() {
+                Ok(r) => r,
+                Err(_) => dht22::Reading { temp: 0.0, hum :0.0 }
+            };                 
+            
+            let soil_reading = soil_sensor.read_single();
 
-            loop {
-                let dht_reading = match dht.read() {
-                    Ok(r) => r,
-                    Err(_) => dht22::Reading { temp: 0.0, hum :0.0 }
-                };                 
-                
-                let soil_reading = soil_sensor.read_single();
+            let mut s = String::<256>::from("");
+            let _ = write!(
+                s,
+                "{{ \"{}\": {:.2},  \"{}\": {:.2},  \"{}\": {:.2} }}",
+                env!("SOIL_SENSOR_ID"),
+                soil_reading,
+                env!("TEMP_SENSOR_ID"),
+                dht_reading.temp,
+                env!("HUM_SENSOR_ID"),
+                dht_reading.hum
+            );
 
-                let mut s = String::<256>::from("");
-                let _ = write!(s, "{{ \"soil_0\": {:.2},  \"temp_0\": {:.2},  \"hum_0\": {:.2} }}", soil_reading, dht_reading.temp, dht_reading.hum );
+            wifi_device.connect_and_send(
+                env!("HOST_IP"),
+                env!("HOST_NAME"),
+                env!("HOST_PORT"),
+                env!("HOST_PATH"),
+                s.as_bytes()
+            ).await;
 
-                wifi_device.connect_and_send(
-                    env!("HOST_IP"),
-                    env!("HOST_NAME"),
-                    env!("HOST_PORT"),
-                    env!("HOST_PATH"),
-                    s.as_bytes()
-                ).await;
-
-                Timer::after(Duration::from_secs(READ_INTERVAL)).await;
-            }
-
+            Timer::after(Duration::from_secs(read_interval)).await;
         }
     }.await;
 
